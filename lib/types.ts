@@ -98,3 +98,29 @@ export type AuditEntry = {
   leadId: string;
   at: string;
 };
+
+// queued: waiting for n8n's `quote-request` workflow (40–90 s) to call back.
+export const QUOTE_STATUSES = ["queued", "ready", "failed"] as const;
+
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+export type Quote = {
+  id: string;
+  company: string;
+  email: string;
+  description: string;
+  budget: number | null;
+  status: QuoteStatus;
+  documentUrl: string | null;
+  failureCode: string | null;
+  // One per quote request, reused on every retry to n8n; the callback finds the quote by it.
+  idempotencyKey: string;
+  correlationId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewQuote = Pick<
+  Quote,
+  "company" | "email" | "description" | "budget" | "idempotencyKey" | "correlationId"
+>;

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type {
   AuditEntry,
   Lead,
@@ -5,6 +6,9 @@ import type {
   LeadStats,
   LeadStatus,
   NewLead,
+  NewQuote,
+  Quote,
+  QuoteStatus,
   SourceCount,
   User,
   Workspace,
@@ -36,6 +40,12 @@ const LATENCY_MS = {
   insertAuditEntry: 250,
   listUsers: 50,
   createSession: 50,
+  insertQuote: 120,
+  getQuote: 80,
+  markQuoteFailed: 80,
+  applyQuoteResult: 80,
+  claimCallbackKey: 20,
+  releaseCallbackKey: 20,
 } as const;
 
 type QueryName = keyof typeof LATENCY_MS;
@@ -269,6 +279,23 @@ function createStore(): Store {
 const globalForStore = globalThis as unknown as { leadDeskStore?: Store };
 const store = (globalForStore.leadDeskStore ??= createStore());
 
+// Quotes live in their own global so a `next dev` reload of this module does not
+// meet an older leadDeskStore without them.
+type QuoteStore = {
+  quotes: Quote[];
+  // Callback idempotency keys already accepted. Demo only: in production this is a
+  // table with a unique constraint, shared by every server instance.
+  callbackKeys: Set<string>;
+};
+
+const globalForQuotes = globalThis as unknown as { leadDeskQuoteStore?: QuoteStore };
+const quoteStore = (globalForQuotes.leadDeskQuoteStore ??= { quotes: [], callbackKeys: new Set() });
+
+// Unguessable: /quotes/[id] is public, so the id is the only thing guarding it.
+function quoteId() {
+  return `q_${randomBytes(16).toString("base64url")}`;
+}
+
 const SESSION_PREFIX = "demo-";
 
 export const db = {
@@ -392,6 +419,81 @@ export const db = {
   insertAuditEntry(entry: AuditEntry) {
     return query("insertAuditEntry", () => {
       store.audit.push(entry);
+    });
+  },
+
+  insertQuote(input: NewQuote) {
+    return query("insertQuote", (): Quote => {
+      const now = new Date().toISOString();
+      const quote: Quote = {
+        ...input,
+        id: quoteId(),
+        status: "queued",
+        documentUrl: null,
+        failureCode: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      quoteStore.quotes.push(quote);
+      return structuredClone(quote);
+    });
+  },
+
+  getQuote(id: string) {
+    return query("getQuote", () => {
+      const quote = quoteStore.quotes.find((q) => q.id === id);
+      return quote ? structuredClone(quote) : null;
+    });
+  },
+
+  // n8n never accepted the request. A callback that arrives later still wins.
+  markQuoteFailed(id: string, failureCode: string) {
+    return query("markQuoteFailed", () => {
+      const quote = quoteStore.quotes.find((q) => q.id === id);
+      if (!quote || quote.status !== "queued") return false;
+      quote.status = "failed";
+      quote.failureCode = failureCode;
+      quote.updatedAt = new Date().toISOString();
+      return true;
+    });
+  },
+
+  applyQuoteResult(result: {
+    requestIdempotencyKey?: string;
+    correlationId?: string;
+    status: Exclude<QuoteStatus, "queued">;
+    documentUrl: string | null;
+    failureCode: string | null;
+  }) {
+    return query("applyQuoteResult", () => {
+      const quote = quoteStore.quotes.find((q) =>
+        result.requestIdempotencyKey
+          ? q.idempotencyKey === result.requestIdempotencyKey
+          : q.correlationId === result.correlationId,
+      );
+      if (!quote) return false;
+      // A late "failed" must not hide a document that is already there.
+      if (quote.status === "ready" && result.status === "failed") return true;
+      quote.status = result.status;
+      quote.documentUrl = result.documentUrl;
+      quote.failureCode = result.failureCode;
+      quote.updatedAt = new Date().toISOString();
+      return true;
+    });
+  },
+
+  // true: first time this key is seen (atomic within the process).
+  claimCallbackKey(key: string) {
+    return query("claimCallbackKey", () => {
+      if (quoteStore.callbackKeys.has(key)) return false;
+      quoteStore.callbackKeys.add(key);
+      return true;
+    });
+  },
+
+  releaseCallbackKey(key: string) {
+    return query("releaseCallbackKey", () => {
+      quoteStore.callbackKeys.delete(key);
     });
   },
 };

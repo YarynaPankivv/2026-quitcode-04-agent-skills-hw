@@ -84,12 +84,26 @@ Next.js. Це перевірю в п. 5.
 
 ## 5. Чи правдивий зміст для нашого стеку
 
-_Допишу після кроку 5 (рев'ю застосунку й виправлення): звірю поради, які застосую, з
-`node_modules/next/dist/docs/` (Next.js 16.3.5)._
+Дописано після кроку 5 (рев'ю застосунку й виправлення). Кожну пораду, яку застосовували або
+свідомо відклали, звірили з `node_modules/next/dist/docs/` (Next.js 16.3.5). Шляхи нижче — від
+`node_modules/next/dist/docs/01-app/`. Числа до/після — у `docs/verification.md`.
 
 | Порада скіла (id) | Що каже скіл | Що каже документація нашої версії | Висновок |
 |---|---|---|---|
-| | | | |
+| `async-parallel` | Незалежні `await` запускати разом через `Promise.all` | `01-getting-started/06-fetching-data.md:456` «Parallel data fetching»: запити в одному компоненті йдуть послідовно, радять `Promise.all`; `:544` — про `Promise.allSettled`, якщо один запит може впасти | **Правдиво, застосовано** (`8416969`): TTFB 2,256 → 1,456 с |
+| `server-cache-react` | Дедуплікувати запити до БД у межах запиту через `React.cache()`; не передавати інлайн-об'єкти, бо `cache` порівнює аргументи через `Object.is` | `06-fetching-data.md:546` «Reusing data with `React.cache`»: саме для ORM/БД; `:604` — кеш живе в межах одного запиту | **Правдиво, застосовано** (`4c0019a`). Запитів сесії/workspace 3 → 1. TTFB не змінився, і це теж видно з документації: `06-fetching-data.md:460` «layouts and pages are rendered in parallel», тож дублікати йшли паралельно |
+| `server-serialization` | У Client Component передавати лише потрібні поля | `01-getting-started/05-server-and-client-components.md:298`: пропси мають бути серіалізовними; `02-guides/data-security.md:64`: повертати «safe, minimal DTOs» | **Правдиво, застосовано** (`954bab6`): HTML −74 %, RSC −90 %, IP/нотатки більше не в браузері |
+| `bundle-dynamic-imports` | Важкі компоненти — через `next/dynamic` з `{ ssr: false }` | `02-guides/lazy-loading.md:66` і `:94`: `ssr: false` працює лише в Client Components, у Server Component це помилка | **Правдиво з застереженням**: приклад скіла про це мовчить. Застосовано в `leads-toolbar.tsx` (уже `"use client"`), коміт `9b42c29` |
+| `bundle-conditional` | Модулі, потрібні лише для однієї функції, вантажити через `import()` при її ввімкненні; у прикладі — перевірка `typeof window !== 'undefined'` | `02-guides/lazy-loading.md:97` «Loading External Libraries»: `import()` в обробнику подій | **Правдиво, застосовано** (`0aa95a2`) без `typeof window`: `import()` стоїть в обробнику кліку, а він на сервері не виконується. JS −61 % |
+| `bundle-barrel-imports` | Імпортувати напряму з файлів модуля або додати бібліотеку в `optimizePackageImports`. У списку «commonly affected» є `lodash` | `03-api-reference/05-config/01-next-config-js/optimizePackageImports.md`: опція позначена `version: experimental`; «optimized by default» уже є `recharts` і `lodash-es`, а `lodash` (CJS) немає | **Частково застаріло**: для `recharts` порада зайва, бо Next.js 16 робить це сам. Для `lodash` правильна дія — `import debounce from "lodash/debounce"`. Не застосовували |
+| `server-after-nonblocking` | Повільне після відповіді (логування, вебхуки) — в `after()` | `03-api-reference/04-functions/after.md:6`: `after` є в `next/server` і саме для цього | **Правдиво, але не тут**: виклик n8n у `app/actions.ts` приводимо до контракту команди в Task D |
+| `client-swr-dedup` | Клієнтські запити дедуплікувати через SWR | Про SWR документація Next.js не пише. Альтернатива з `05-server-and-client-components.md` — передати дані з Server Component пропсом | **Не застосовано**: SWR — новий пакет, його без окремого «так» не ставимо |
+
+Загалом: з восьми звірених порад жодна в нашій версії не шкодить, якщо застосувати її як слід.
+Одна частково застаріла (`bundle-barrel-imports`: Next.js 16 сам оптимізує `recharts`). В одній
+приклад без застереження ламає збірку, якщо скопіювати його в Server Component
+(`bundle-dynamic-imports`, `ssr: false`). Тому вимога «звіряти кожну пораду з документацією»
+лишається умовою використання скіла.
 
 ## 6. Закріплення версії й коміт
 

@@ -122,8 +122,10 @@ metadata:
       потім `callback POST …/api/n8n/<event> -> 202`.
 - [ ] Відповідь форми (DevTools → Network, POST) — сотні мілісекунд, а не час воркфлоу, навіть з
       `--mode last-node`.
-- [ ] Повтор того самого колбека (ті самі байти й заголовки) → 200 `{"duplicate":true}`; змінений
-      байт тіла → 401; `idempotency-key` не з тіла → 400.
+- [ ] Матриця колбеків: зупини мок, запусти
+      `node --env-file=.env.local .claude/skills/integrating-n8n-webhooks/scripts/send-signed-callback.mjs --listen`
+      і надішли форму. Має бути 21 випадок OK (підпис, час, розмір, подія, ідемпотентність, повтори),
+      exit 0, запис після прогону — готовий. FAIL — виправ роут за підказкою, не матрицю.
 - [ ] Журнал `npm run dev`/`npm start` після відправки: немає email, імені, телефону, токена,
       підпису (пошук за тестовим email → 0 збігів).
 
@@ -144,5 +146,9 @@ metadata:
   `after()`, `req.text()` до `JSON.parse`, `timingSafeEqual`, вікно часу, edge, `.env.example`,
   журнали). PASS/FAIL з файлом і рядком, exit 1 при FAIL; `--root <тека>`,
   `--changed-since <ref>`, `--help`. Node без залежностей.
+- `scripts/send-signed-callback.mjs` — матриця з 21 підписаного колбека проти роуту
+  (`--listen`: стає «n8n» на :5678, приймає запуск із форми й бере справжні ключі; `--url`:
+  напряму). Очікуваний код на кожен випадок, exit 1 при розбіжності; секрети — лише зі змінних,
+  `--help`, `--list`.
 - `scripts/mock-n8n.mjs` — офлайн-мок n8n (Webhook, Header Auth, режими, підписаний колбек);
   `--help`. Копія `tools/mock-n8n.mjs`, щоб скіл працював і в інших проєктах.

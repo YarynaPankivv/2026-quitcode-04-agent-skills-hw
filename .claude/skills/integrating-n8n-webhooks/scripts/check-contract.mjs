@@ -3,7 +3,7 @@
 // (skill integrating-n8n-webhooks). Node built-ins only.
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { join, posix, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const USAGE = `check-contract — статична перевірка коду на контракт Next.js ↔ n8n
@@ -24,18 +24,19 @@ Options:
 Перевірки (id — PASS/FAIL, для FAIL — файл:рядок):
   C1   немає тестового URL /webhook-test/ у коді й .env.example
   C2   немає змінних NEXT_PUBLIC_N8N_*
-  C3   N8N_WEBHOOK_* читає лише lib/n8n/client.ts (єдиний модуль виклику n8n)
+  C3   змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts
   C4   lib/n8n/client.ts існує, якщо n8n викликається, і починається з import "server-only"
   C5   кожен fetch до n8n має signal: AbortSignal.timeout(...)
   C6   запит до n8n несе x-n8n-token, idempotency-key, x-correlation-id
   C7   тіло — конверт { version: 1, event, data, ... }, а не рядок з бази
   C8   Server Action ("use server") не чекає n8n: виклик лише всередині after(...)
   C9   колбек-роут: req.text() до будь-якого JSON.parse, без req.json()
-  C10  колбек-роут: підпис через timingSafeEqual, не === / !==
+  C10  колбек-роут: HMAC x-n8n-signature (createHmac) + timingSafeEqual, не === / !==
   C11  колбек-роут: перевіряє x-n8n-timestamp і вікно 300 с
   C12  немає export const runtime = "edge"
   C13  .env.example: потрібні N8N_* є, секрети — change-me-…, адреси — локальні
   C14  журнали коду n8n не містять тіл, заголовків, персональних даних, секретів
+  C15  колбек-роут відсікає повтори за idempotency-key
 
 Exit code: 0 — усі PASS; 1 — є FAIL; 2 — помилка запуску.`;
 
@@ -190,14 +191,21 @@ function matchClose(src, open) {
 // ---------------------------------------------------------------------------
 
 const CLIENT_RE = /^(src\/)?lib\/n8n\/client\.(ts|js|mjs)$/;
-// process.env.N8N_WEBHOOK_X, process.env["N8N_WEBHOOK_X"] or the name as a string (requireEnv("N8N_WEBHOOK_X")).
-const WEBHOOK_ENV_RE = /(?:process\.env\.|["'`])(N8N_WEBHOOK\w*)/g;
-const touchesWebhookEnv = (f) => /(?:process\.env\.|["'`])N8N_WEBHOOK/.test(f.code);
+// Env vars of the Next.js -> n8n call, whatever the agent named them: N8N_*URL / N8N_*WEBHOOK* / N8N_*TOKEN
+// (N8N_WEBHOOK_BASE_URL, N8N_QUOTE_WEBHOOK_URL…), read as process.env.X, process.env["X"] or requireEnv("X").
+// Callback secrets (N8N_*CALLBACK*, N8N_*SECRET*) belong to the callback side and are excluded.
+const TRIGGER_ENV_RE = /(?:process\.env\.|["'`])(N8N_(?!\w*(?:CALLBACK|SECRET))\w*(?:URL|WEBHOOK|TOKEN)\w*)/g;
+const CALLBACK_ENV_RE = /(?:process\.env\.|["'`])N8N_\w*(?:CALLBACK|SECRET)\w*/;
+const WEBHOOK_PATH_LITERAL_RE = /["'`][^"'`\n]*\/webhook(?:-test)?\/[^"'`\n]*["'`]/;
+const touchesTriggerEnv = (f) => new RegExp(TRIGGER_ENV_RE.source).test(f.code);
 const clientFile = files.find((f) => CLIENT_RE.test(f.path)) ?? null;
 
-// Files that call n8n directly: the client module, or any file that reads N8N_WEBHOOK_* and calls fetch.
+// Files that call n8n directly: the client module, or any file that calls fetch and reads a trigger env var
+// or holds an n8n webhook path.
 const n8nFetchFiles = files.filter(
-  (f) => /\bfetch\s*\(/.test(f.code) && (CLIENT_RE.test(f.path) || touchesWebhookEnv(f)),
+  (f) =>
+    /\bfetch\s*\(/.test(f.code) &&
+    (CLIENT_RE.test(f.path) || touchesTriggerEnv(f) || WEBHOOK_PATH_LITERAL_RE.test(f.code)),
 );
 
 function fetchCalls(file) {
@@ -210,15 +218,50 @@ function fetchCalls(file) {
   return calls;
 }
 
-// Exported function names of the client module (triggerN8n, sendToN8n, ...).
-const clientExports = clientFile
-  ? [...clientFile.code.matchAll(/export\s+(?:async\s+)?(?:function\s+|const\s+)([A-Za-z_$][\w$]*)/g)].map((m) => m[1])
-  : [];
+// Exported functions that call fetch in those files (triggerN8n, startQuoteWorkflow, ...): calling them = calling n8n.
+function exportedFunctionsCalling(file, pattern) {
+  const names = [];
+  const defs = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>/g;
+  for (const m of file.code.matchAll(defs)) {
+    const brace = file.code.indexOf("{", m.index + m[0].length - 1);
+    const end = brace === -1 ? file.code.indexOf("\n", m.index) : matchClose(file.code, brace);
+    if (pattern.test(file.code.slice(m.index, end))) names.push(m[1] ?? m[2]);
+  }
+  return names;
+}
+const triggerFunctions = [...new Set(n8nFetchFiles.flatMap((f) => exportedFunctionsCalling(f, /\bfetch\s*\(/)))];
 
-const isCallbackRoute = (f) =>
-  /(^|\/)app\/api\/n8n\/.+\/route\.(ts|js)$/.test(f.path) ||
-  (/(^|\/)route\.(ts|js)$/.test(f.path) && /x-n8n-signature/.test(f.code));
-const callbackRoutes = files.filter(isCallbackRoute);
+// Local modules a file imports ("@/lib/x", "./x"), one level deep — verification often lives in a helper.
+const byPath = new Map(files.map((f) => [f.path, f]));
+function resolveImport(fromPath, spec) {
+  let bases;
+  if (spec.startsWith("@/")) bases = [spec.slice(2), `src/${spec.slice(2)}`];
+  else if (spec.startsWith(".")) bases = [posix.join(posix.dirname(fromPath), spec)];
+  else return null;
+  for (const base of bases) {
+    for (const suffix of ["", ".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.js"]) {
+      const hit = byPath.get(posix.normalize(base + suffix));
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+function unitOf(file) {
+  const modules = [file];
+  for (const m of file.code.matchAll(/(?:import|export)\s[^;]*?from\s*["']([^"']+)["']/g)) {
+    const hit = resolveImport(file.path, m[1]);
+    if (hit && !modules.includes(hit)) modules.push(hit);
+  }
+  return modules;
+}
+
+// Callback route: a route handler under app/api/n8n/, or one that (itself or via its local imports) reads a
+// callback secret or x-n8n-signature — also when the agent put it elsewhere (app/api/quotes/callback…).
+const callbackRoutes = files.filter((f) => {
+  if (!/(^|\/)route\.(ts|js)$/.test(f.path)) return false;
+  if (/(^|\/)app\/api\/n8n\//.test(f.path)) return true;
+  return unitOf(f).some((m) => CALLBACK_ENV_RE.test(m.code) || /x-n8n-signature/i.test(m.code));
+});
 
 const usesServer = (f) => /^\s*(["'])use server\1/m.test(f.code.split("\n").slice(0, 5).join("\n"));
 
@@ -256,10 +299,10 @@ check("C2", "немає NEXT_PUBLIC_N8N_* (секрети n8n не йдуть у
   });
 });
 
-check("C3", "N8N_WEBHOOK_* читає лише lib/n8n/client.ts", (fail) => {
+check("C3", "змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts", (fail) => {
   for (const f of files) {
     if (CLIENT_RE.test(f.path)) continue;
-    for (const m of f.code.matchAll(WEBHOOK_ENV_RE)) {
+    for (const m of f.code.matchAll(TRIGGER_ENV_RE)) {
       fail(f.path, lineAt(f.code, m.index), `${m[1]} поза lib/n8n/client.ts — виклик n8n має бути лише там`);
     }
   }
@@ -267,9 +310,8 @@ check("C3", "N8N_WEBHOOK_* читає лише lib/n8n/client.ts", (fail) => {
 
 check("C4", 'модуль lib/n8n/client.ts починається з import "server-only"', (fail, note) => {
   if (!clientFile) {
-    const first = n8nFetchFiles[0];
-    if (first) fail(first.path, fetchCalls(first)[0]?.line ?? 1, "n8n викликається, а lib/n8n/client.ts немає");
-    else note("n8n не викликається — перевіряти нічого");
+    for (const f of n8nFetchFiles) fail(f.path, fetchCalls(f)[0]?.line ?? 1, "n8n викликається, а lib/n8n/client.ts немає");
+    if (n8nFetchFiles.length === 0) note("n8n не викликається — перевіряти нічого");
     return;
   }
   const firstStatement = clientFile.code.split("\n").findIndex((l) => l.trim() !== "");
@@ -320,10 +362,10 @@ check("C8", 'Server Action не чекає n8n: виклик лише в after(.
     });
     const inside = (i) => ranges.some(([a, b]) => i > a && i < b);
     const calls = [];
-    if (touchesWebhookEnv(f)) {
+    if (n8nFetchFiles.includes(f)) {
       for (const c of fetchCalls(f)) calls.push({ index: c.index, what: "fetch до n8n" });
     }
-    for (const name of clientExports) {
+    for (const name of triggerFunctions) {
       for (const m of f.code.matchAll(new RegExp(`\\b${name}\\s*\\(`, "g"))) {
         if (!/import[^;]*$/.test(f.code.slice(Math.max(0, m.index - 200), m.index).split("\n").pop() ?? "")) {
           calls.push({ index: m.index, what: `${name}(...)` });
@@ -375,40 +417,63 @@ check("C9", "колбек-роут читає req.text() до будь-яког�
       fail(f.path, 1, "не знайдено export POST");
       continue;
     }
+    // Helpers are followed into the route's local imports (verifySignature() in lib/n8n/verify.ts…).
+    const unitCode = unitOf(f).map((m) => m.code).join("\n");
     const textAt = firstUse(f.code, body, /\b(req|request)\s*\.\s*text\s*\(/, []);
     if (textAt === -1) fail(f.path, lineAt(f.code, body.start), "немає await req.text()");
-    const parseAt = firstUse(f.code, body, /\bJSON\.parse\s*\(/, helpersContaining(f.code, /\bJSON\.parse\s*\(/));
-    const sigAt = firstUse(f.code, body, /\btimingSafeEqual\s*\(|\bcreateHmac\s*\(/, helpersContaining(f.code, /\btimingSafeEqual\s*\(|\bcreateHmac\s*\(/));
+    const parseAt = firstUse(f.code, body, /\bJSON\.parse\s*\(/, helpersContaining(unitCode, /\bJSON\.parse\s*\(/));
+    const sigAt = firstUse(f.code, body, /\btimingSafeEqual\s*\(|\bcreateHmac\s*\(/, helpersContaining(unitCode, /\btimingSafeEqual\s*\(|\bcreateHmac\s*\(/));
     if (parseAt !== -1 && (sigAt === -1 || parseAt < sigAt)) {
       fail(f.path, lineAt(f.code, parseAt), "JSON розбирається до перевірки підпису");
     }
   }
 });
 
-check("C10", "колбек-роут порівнює підпис через timingSafeEqual, не ===", (fail, note) => {
+// The route plus its local imports: where the signature, timestamp and idempotency logic actually live.
+const firstLineOf = (f, re) => {
+  const at = f.code.search(re);
+  return at === -1 ? 1 : lineAt(f.code, at);
+};
+
+check("C10", "колбек-роут перевіряє HMAC x-n8n-signature через timingSafeEqual, не ===", (fail, note) => {
   if (callbackRoutes.length === 0) return note("колбек-роуту немає — перевіряти нічого");
   const SIG = /signature|\bsig\b|hmac|digest|expected/i;
   for (const f of callbackRoutes) {
-    if (!/\btimingSafeEqual\s*\(/.test(f.code)) {
-      const at = f.code.search(/createHmac|x-n8n-signature/);
-      fail(f.path, at === -1 ? 1 : lineAt(f.code, at), "немає crypto.timingSafeEqual");
+    const unit = unitOf(f);
+    const has = (re) => unit.some((m) => re.test(m.code));
+    if (!has(/["'`]x-n8n-signature["'`]/i) || !has(/\bcreateHmac\s*\(/)) {
+      fail(f.path, firstLineOf(f, /export\s+(?:async\s+)?function\s+POST|export\s+const\s+POST/), "не перевіряє HMAC-підпис x-n8n-signature (createHmac) — лише токен чи нічого");
     }
-    stripStrings(f.code).split("\n").forEach((l, i) => {
-      for (const m of l.matchAll(/([^\s=!&|(]+)\s*(===|!==|==|!=)\s*([^\s&|)]+)/g)) {
-        const [, left, , right] = m;
-        if ((SIG.test(left) || SIG.test(right)) && !/\.length\b/.test(left + right)) {
-          fail(f.path, i + 1, `порівняння підпису через ${m[2]} — лише timingSafeEqual`);
+    if (!has(/\btimingSafeEqual\s*\(/)) fail(f.path, firstLineOf(f, /createHmac|x-n8n-signature/), "немає crypto.timingSafeEqual");
+    for (const m of unit.filter((x) => /createHmac|timingSafeEqual|x-n8n-signature/.test(x.code))) {
+      stripStrings(m.code).split("\n").forEach((l, i) => {
+        for (const c of l.matchAll(/([^\s=!&|(]+)\s*(===|!==|==|!=)\s*([^\s&|)]+)/g)) {
+          const [, left, , right] = c;
+          if ((SIG.test(left) || SIG.test(right)) && !/\.length\b/.test(left + right)) {
+            fail(m.path, i + 1, `порівняння підпису через ${c[2]} — лише timingSafeEqual`);
+          }
         }
-      }
-    });
+      });
+    }
   }
 });
 
 check("C11", "колбек-роут перевіряє x-n8n-timestamp і вікно 300 с", (fail, note) => {
   if (callbackRoutes.length === 0) return note("колбек-роуту немає — перевіряти нічого");
   for (const f of callbackRoutes) {
-    if (!/["'`]x-n8n-timestamp["'`]/i.test(f.code)) fail(f.path, 1, "не читає x-n8n-timestamp");
-    else if (!/\b300\b|5\s*\*\s*60\b/.test(f.code)) fail(f.path, 1, "немає вікна часу 300 с");
+    const unitCode = unitOf(f).map((m) => m.code).join("\n");
+    if (!/["'`]x-n8n-timestamp["'`]/i.test(unitCode)) fail(f.path, 1, "не читає x-n8n-timestamp — немає захисту від повторного відтворення");
+    else if (!/\b300\b|5\s*\*\s*60\b/.test(unitCode)) fail(f.path, 1, "немає вікна часу 300 с");
+  }
+});
+
+check("C15", "колбек-роут відсікає повтори за idempotency-key", (fail, note) => {
+  if (callbackRoutes.length === 0) return note("колбек-роуту немає — перевіряти нічого");
+  for (const f of callbackRoutes) {
+    const unitCode = unitOf(f).map((m) => m.code).join("\n");
+    if (!/["'`]idempotency-key["'`]/i.test(unitCode)) {
+      fail(f.path, 1, "не читає idempotency-key — повтори n8n (Retry On Fail) не відсікаються за ключем");
+    }
   }
 });
 
@@ -453,7 +518,7 @@ check("C14", "журнали коду n8n без тіл, заголовків, �
     ...n8nFetchFiles.map((f) => f.path),
     ...callbackRoutes.map((f) => f.path),
     ...(clientFile ? [clientFile.path] : []),
-    ...files.filter((f) => clientExports.some((n) => new RegExp(`\\b${n}\\s*\\(`).test(f.code))).map((f) => f.path),
+    ...files.filter((f) => triggerFunctions.some((n) => new RegExp(`\\b${n}\\s*\\(`).test(f.code))).map((f) => f.path),
   ]);
   for (const f of files.filter((x) => n8nFiles.has(x.path))) {
     const code = stripStrings(f.code);
@@ -509,6 +574,7 @@ if (args.changedSince) {
 // Report
 // ---------------------------------------------------------------------------
 
+results.sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 const scope = args.changedSince ? ` · лише зміни після ${args.changedSince}` : "";
 console.log(`check-contract · root: ${ROOT}${scope} · ${files.length} файлів коду · ${results.length} перевірок`);
 let failed = 0;

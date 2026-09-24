@@ -141,10 +141,12 @@ metadata:
   `docs/n8n-integrations.md`.
 - [references/pitfalls.md](references/pitfalls.md) — розбіжності документації й коду n8n, чужих
   скілів, типові помилки агентів.
-- `scripts/check-contract.mjs` — статична перевірка коду на контракт, 14 перевірок `C1`–`C14`
+- `scripts/check-contract.mjs` — статична перевірка коду на контракт, 15 перевірок `C1`–`C15`
   (тестовий URL, `NEXT_PUBLIC_N8N_*`, один модуль + `server-only`, таймаут, заголовки, конверт,
-  `after()`, `req.text()` до `JSON.parse`, `timingSafeEqual`, вікно часу, edge, `.env.example`,
-  журнали). PASS/FAIL з файлом і рядком, exit 1 при FAIL; `--root <тека>`,
+  `after()`, `req.text()` до `JSON.parse`, HMAC + `timingSafeEqual`, вікно часу, edge,
+  `.env.example`, журнали, ідемпотентність колбека). Бачить інтеграцію за змістом, а не лише за
+  «правильними» іменами: будь-які `N8N_*URL/TOKEN`, колбек-роут будь-де разом з його локальними
+  імпортами. PASS/FAIL з файлом і рядком, exit 1 при FAIL; `--root <тека>`,
   `--changed-since <ref>`, `--help`. Node без залежностей.
 - `scripts/send-signed-callback.mjs` — матриця з 21 підписаного колбека проти роуту
   (`--listen`: стає «n8n» на :5678, приймає запуск із форми й бере справжні ключі; `--url`:

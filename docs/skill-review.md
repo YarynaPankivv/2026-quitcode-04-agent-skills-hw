@@ -93,12 +93,23 @@ _Допишу після кроку 5 (рев'ю застосунку й вип�
 
 ## 6. Закріплення версії й коміт
 
-_Заповню після встановлення (крок 2)._
-
-- Команда встановлення: <…>
-- Де лягли файли; справжні файли чи посилання: <…>
-- Що потрапило в git: <…>
-- Як оновлювати: <…>
+- Команда встановлення (запускала сама в Git Bash; scope → Project, «Proceed with installation?» → Yes):
+  ```bash
+  DISABLE_TELEMETRY=1 npx skills@1.7.0 add vercel-labs/agent-skills#agent-skills-063bee94c3f4df8453406c830b0a7df0f2860278 \
+    --skill vercel-react-best-practices -a claude-code --copy
+  ```
+- Де лягли файли; справжні файли чи посилання: `.claude/skills/vercel-react-best-practices/`, 75 справжніх
+  файлів (у git усі з режимом `100644`, жодного symlink чи junction). Теки `.agents/` немає, глобальної
+  копії в `~/.claude/skills/` теж. `diff -r` з клоном тега з п. 1 відрізняється лише `metadata.json`,
+  який CLI не копіює, тож встановлено саме те, що я рев'ювала.
+- Що потрапило в git: коміт `b5ef777` «skills: vendor vercel-react-best-practices pinned to
+  agent-skills-063bee9», 76 файлів: тека скіла + `skills-lock.json` (`source: vercel-labs/agent-skills`,
+  `ref: agent-skills-063bee94…`, `computedHash: 6b526d01…`).
+- Як оновлювати: не «наосліп». Беру новий тег, клоную його поза репозиторієм, дивлюся `diff -r` зі
+  встановленою текою і проходжу цей чекліст для змін. Якщо все гаразд — та сама команда `add` з новим
+  тегом і `--copy`, перевірка (кількість файлів, немає `.agents/`) і окремий коміт. `npx skills@1.7.0
+  experimental_install` для відновлення не використовую: він пише лише в `.agents/skills/`, яку
+  Claude Code не читає, тому справжні файли тримаємо в git.
 
 ## Вердикт
 

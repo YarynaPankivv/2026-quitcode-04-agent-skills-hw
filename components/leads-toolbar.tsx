@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import ExcelJS from "exceljs";
 import type { SourceCount } from "@/lib/types";
-import { SourcesChart } from "./sources-chart";
+
+// recharts is only needed once the chart is opened, so it gets its own chunk.
+const SourcesChart = dynamic(() => import("./sources-chart").then((m) => m.SourcesChart), {
+  ssr: false,
+  loading: () => <div className="h-64 w-full" />,
+});
 
 type ExportRow = {
   id: string;

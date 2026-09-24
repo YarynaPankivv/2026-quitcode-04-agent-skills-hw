@@ -1,5 +1,5 @@
 import { LeadSearch } from "@/components/lead-search";
-import { LeadsTable } from "@/components/leads-table";
+import { LeadsTable, type LeadRow } from "@/components/leads-table";
 import { LeadsToolbar } from "@/components/leads-toolbar";
 import { StatsCards } from "@/components/stats-cards";
 import {
@@ -18,6 +18,14 @@ export default async function DashboardPage() {
     getLeadStats(workspace.id),
     getSourceBreakdown(workspace.id),
   ]);
+  // Only what the table renders crosses into the Client Component.
+  const rows: LeadRow[] = leads.map(({ id, fullName, company, status, createdAt }) => ({
+    id,
+    fullName,
+    company,
+    status,
+    createdAt,
+  }));
 
   return (
     <div className="space-y-6">
@@ -31,7 +39,7 @@ export default async function DashboardPage() {
       <StatsCards stats={stats} />
       <LeadsToolbar sources={sources} />
       <LeadSearch />
-      <LeadsTable leads={leads} />
+      <LeadsTable leads={rows} />
     </div>
   );
 }

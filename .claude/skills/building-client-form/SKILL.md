@@ -14,7 +14,7 @@ description: >-
   у скілі integrating-n8n-webhooks.
 metadata:
   owner: studio-nova-dev
-  version: "0.1.0"
+  version: "0.1.1"
 ---
 
 # Форма з відправкою на сервер
@@ -68,8 +68,9 @@ export type NoteFormState =
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 
-export async function addNote(leadId: string, _prev: NoteFormState, formData: FormData): Promise<NoteFormState> {
+export async function addNote(_prev: NoteFormState, formData: FormData): Promise<NoteFormState> {
   const user = await getCurrentUser();                 // 1. сесія: немає — redirect("/login")
+  const leadId = String(formData.get("leadId") ?? ""); //    id з прихованого поля — дані клієнта
   const parsed = parseNoteForm(formData);              // 2. валідація на сервері, завжди
   if (!parsed.ok) return { status: "invalid", errors: parsed.errors, values: parsed.values };
 
@@ -83,8 +84,11 @@ export async function addNote(leadId: string, _prev: NoteFormState, formData: Fo
 }
 ```
 
-- id запису — через `addNote.bind(null, lead.id)` або `<input type="hidden">`. Це дані від
-  клієнта, а не доказ прав: крок 3 обов'язковий.
+- id запису — лише через `<input type="hidden" name="leadId" value={leadId} />`, **не** через
+  `useActionState(addNote.bind(null, id), …)`. На Next.js 16.3.5 + React 19.2.8 форма з `.bind`
+  без JavaScript зависає: дія виконується, а відповідь сервер так і не віддає (перевірено
+  24.09.2026, `docs/verification.md`, Task B). id — дані від клієнта, а не доказ прав, тому крок 3
+  обов'язковий.
 - `workspaceId`, `ownerId`, `role`, `status` беремо із сесії чи конфігурації сервера, **ніколи** з
   `formData`.
 - Публічна форма (заявка з сайту) — без сесії, але це свідоме рішення, записане коментарем. Кроки
@@ -96,11 +100,15 @@ export async function addNote(leadId: string, _prev: NoteFormState, formData: Fo
 
 ```tsx
 "use client";
-const [state, formAction, pending] = useActionState(addNote.bind(null, leadId), { status: "idle" });
+const [state, formAction, pending] = useActionState(addNote, { status: "idle" });
 const errors = state.status === "invalid" ? state.errors : {};
 const values = state.status === "invalid" ? state.values : {};
 
-<form action={formAction}>…<button type="submit" disabled={pending}>{pending ? "Зберігаємо…" : "Зберегти"}</button></form>
+<form action={formAction}>
+  <input type="hidden" name="leadId" value={leadId} />
+  …
+  <button type="submit" disabled={pending}>{pending ? "Зберігаємо…" : "Зберегти"}</button>
+</form>
 ```
 
 - `action={formAction}` на `<form>` — і більше нічого: без `onSubmit` + `preventDefault`, без
@@ -157,7 +165,8 @@ const values = state.status === "invalid" ? state.values : {};
 - [ ] 2. Права на конкретний запис перевіряються в дії; workspace/owner/role — не з formData.
 - [ ] 3. Валідація — на сервері в parse<Form>Form; дія не пише в БД при невалідних даних.
 - [ ] 4. Дія повертає лише { status, errors?, values?, message?, id? } — без рядків з бази.
-- [ ] 5. Форма — <form action={formAction}> з useActionState; немає onSubmit/preventDefault/fetch.
+- [ ] 5. Форма — <form action={formAction}> з useActionState(action) без .bind; id — у hidden input;
+        немає onSubmit/preventDefault/fetch.
 - [ ] 6. Кожне поле: <label htmlFor>, name, defaultValue={values.x}, aria-invalid, aria-describedby.
 - [ ] 7. Є підсумок помилок у role="alert"; успіх — role="status".
 - [ ] 8. У дії й after() немає console.* з полями форми чи персональними даними.
@@ -180,7 +189,8 @@ const values = state.status === "invalid" ? state.values : {};
       `role="alert"`; у DevTools → Elements у поля `aria-invalid="true"` і `aria-describedby` на
       id помилки. Заповніть одне поле, відправте знову — введене лишилось.
 - [ ] **Без JS:** DevTools → ⌘/Ctrl+Shift+P → «Disable JavaScript», перезавантажити сторінку,
-      відправити порожньою й заповненою — помилки й успіх показує сервер.
+      відправити порожньою й заповненою — сторінка відповідає за секунди (не висить), помилки й
+      успіх показує сервер.
 - [ ] **Без сесії:** відкрити форму, видалити cookie сесії (DevTools → Application → Cookies),
       відправити — запису немає (у журналі сервера немає `db:<insert/update>`), редірект на
       `/login` або помилка.

@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 const TIMEOUT_MS = 10_000;
 const RETRY_DELAYS_MS = [1_000, 3_000]; // 3 attempts in total
 
-export type N8nEvent = "quote-request"; // one event — one webhook path in n8n
+export type N8nEvent = "quote-request" | "lead-created"; // one event — one webhook path in n8n
 
 export type TriggerOptions = {
   idempotencyKey: string; // created once per business operation and stored with the record

@@ -1,8 +1,11 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import { triggerN8n } from "@/lib/n8n/client";
 import { logAudit } from "@/lib/audit";
 import { parseLeadForm, type LeadFormField } from "@/lib/lead-form";
 import type { LeadStatus } from "@/lib/types";
@@ -50,17 +53,37 @@ export async function submitLead(
     },
   });
 
-  try {
-    await fetch(process.env.N8N_WEBHOOK_URL!, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(lead),
-    });
-  } catch (error) {
-    console.error(`Failed to send lead ${lead.id} to n8n`, error);
-  }
-
-  await logAudit("lead.created", lead.id);
+  // n8n ("Immediately", no callback) and the audit entry run after the response: the visitor
+  // does not wait for them. One idempotency key per lead, reused by the client's retries.
+  const idempotencyKey = randomUUID();
+  const correlationId = randomUUID();
+  after(async () => {
+    try {
+      // What the lead workflow needs from the form — not the IP, user agent or raw payload.
+      const result = await triggerN8n(
+        "lead-created",
+        {
+          leadId: lead.id,
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          email: lead.email,
+          phone: lead.phone,
+          company: lead.company,
+          website: lead.website,
+          budget: lead.budget,
+          message: lead.message,
+          consentMarketing: lead.consentMarketing,
+          source: lead.source,
+          createdAt: lead.createdAt,
+        },
+        { idempotencyKey, correlationId },
+      );
+      if (!result.ok) console.error("lead.not_accepted_by_n8n", { leadId: lead.id, correlationId, status: result.status, reason: result.reason });
+    } catch (error) {
+      console.error("lead.trigger_failed", { leadId: lead.id, correlationId, reason: error instanceof Error ? error.message : "unknown" });
+    }
+    await logAudit("lead.created", lead.id);
+  });
 
   return { status: "ok" };
 }

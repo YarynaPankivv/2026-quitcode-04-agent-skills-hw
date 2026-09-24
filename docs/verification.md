@@ -231,7 +231,23 @@ TTFB — 5 прогонів після прогріву, у таблиці ме�
   Task A, усі три скіли, форма нотаток з Task B. Немає ні `/quotes`, ні переробленого виклику n8n:
   `app/actions.ts:54` досі робить старий `fetch`.
 - `scripts/mock-n8n.mjs` — байт у байт копія `tools/mock-n8n.mjs` (`cmp` без розбіжностей).
-- Що скіл змінив у собі після прогонів (коміти й чому): поки нічого — прогонів Task D ще не було.
+- **Що скіл змінив у собі після прогонів** (коміти й чому; докладно — `docs/ab-validation.md`):
+  - `6feb2a9` — `check-contract.mjs` на коді прогону A (без скіла) показав лише 2 FAIL, хоча код
+    ігнорує контракт. Скрипт упізнавав інтеграцію тільки за «правильними» іменами (`N8N_WEBHOOK_*`,
+    `app/api/n8n/**`), а A назвав змінні `N8N_QUOTE_*` і поклав колбек в `app/api/quotes/callback`
+    з Bearer-секретом. Тепер скрипт розпізнає:
+    - будь-які `N8N_*URL/WEBHOOK/TOKEN` і рядки `/webhook/`;
+    - експортовані функції з `fetch`;
+    - колбек-роут будь-де — за колбековим секретом чи `x-n8n-signature`, разом з його локальними
+      імпортами.
+
+    C10 тепер вимагає HMAC `x-n8n-signature`, додано **C15** (ідемпотентність колбека за
+    `idempotency-key`). Результат: A — 9 FAIL; B, шаблони скіла — як і раніше, 0 FAIL; `main` —
+    ті самі 8 FAIL; навмисно поганий код — 15 FAIL.
+  - `bd1b1e3` — C8 хибно вважав оголошення `export async function submitLead(` викликом n8n поза
+    `after()`. Знайдено, коли доводила перенесений код на гілці.
+
+  Отже, у скрипті тепер **15 перевірок `C1`–`C15`** (вище описано версію з BASE, 14 перевірок).
 
 **`check-contract.mjs`: 14 перевірок `C1`–`C14`**, Node без залежностей (`node:fs`, `node:path`,
 `node:child_process` лише для `--changed-since`). Для кожної — PASS/FAIL, для FAIL — `файл:рядок`
@@ -358,10 +374,29 @@ C3 тут — PASS, і це правильно: `N8N_WEBHOOK_*` у погані�
   старими регресіями), `--changed-since HEAD` — лише 2: `lib/stub.ts:2` і `app/new-file.ts:1`;
 - неіснуючий ref → exit 2.
 
-**`check-contract.mjs` на фінальному коді** (після перенесення прогону B — 0 FAIL):
+**`check-contract.mjs` на фінальному коді** (після перенесення прогону B і доведення — коміти
+`25c47d4`, `57d25d3`, `090db99`; увесь код, без `--changed-since`):
 
 ```
-<вивід>
+$ node .claude/skills/integrating-n8n-webhooks/scripts/check-contract.mjs; echo "exit=$?"
+C1   PASS  немає тестового URL вебхука (/webhook-test/)
+C2   PASS  немає NEXT_PUBLIC_N8N_* (секрети n8n не йдуть у браузер)
+C3   PASS  змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts
+C4   PASS  модуль lib/n8n/client.ts починається з import "server-only"
+C5   PASS  кожен fetch до n8n має signal: AbortSignal.timeout(...)
+C6   PASS  запит до n8n несе x-n8n-token, idempotency-key, x-correlation-id
+C7   PASS  тіло до n8n — конверт { version: 1, event, data }
+C8   PASS  Server Action не чекає n8n: виклик лише в after(...)
+C9   PASS  колбек-роут читає req.text() до будь-якого JSON.parse
+C10  PASS  колбек-роут перевіряє HMAC x-n8n-signature через timingSafeEqual, не ===
+C11  PASS  колбек-роут перевіряє x-n8n-timestamp і вікно 300 с
+C12  PASS  немає export const runtime = "edge"
+C13  PASS  .env.example: N8N_* є, секрети change-me-…, адреси локальні
+C14  PASS  журнали коду n8n без тіл, заголовків, персональних даних, секретів
+C15  PASS  колбек-роут відсікає повтори за idempotency-key
+
+0 FAIL, 15 PASS → exit 0
+exit=0
 ```
 
 **Додатково (за бажанням): матриця колбеків `scripts/send-signed-callback.mjs`** (коміт `828045c`).

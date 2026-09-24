@@ -367,7 +367,10 @@ check("C8", 'Server Action не чекає n8n: виклик лише в after(.
     }
     for (const name of triggerFunctions) {
       for (const m of f.code.matchAll(new RegExp(`\\b${name}\\s*\\(`, "g"))) {
-        if (!/import[^;]*$/.test(f.code.slice(Math.max(0, m.index - 200), m.index).split("\n").pop() ?? "")) {
+        const before = f.code.slice(Math.max(0, m.index - 200), m.index);
+        // Skip the function's own declaration and import lines — only calls count.
+        if (/(?:function\s+|(?:const|let|var)\s+)$/.test(before)) continue;
+        if (!/import[^;]*$/.test(before.split("\n").pop() ?? "")) {
           calls.push({ index: m.index, what: `${name}(...)` });
         }
       }

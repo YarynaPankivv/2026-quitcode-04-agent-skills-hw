@@ -54,7 +54,12 @@ function parseArgs(argv) {
     else if (a === "--changed-since") out.changedSince = argv[++i];
     else if (a.startsWith("--changed-since=")) out.changedSince = a.slice(16);
     else throw new Error(`unknown argument: ${a}`);
-    if (out.root === undefined || out.changedSince === undefined) throw new Error(`${a} needs a value`);
+    // A flag that is present must have a real operand: not missing, not empty, not another flag.
+    for (const v of [out.root, out.changedSince]) {
+      if (v === undefined || v === "" || (typeof v === "string" && v.startsWith("-"))) {
+        throw new Error(`${a.split("=")[0]} needs a value`);
+      }
+    }
   }
   return out;
 }
@@ -218,12 +223,20 @@ function fetchCalls(file) {
   return calls;
 }
 
+// Opening brace of a function body. For `function f(` the definition match ends at "(": the parameter
+// list is skipped first, because it may hold `{ … }` destructuring (triggerN8n(event, data, { … })).
+function bodyBrace(code, afterDefinition) {
+  let from = afterDefinition;
+  if (code[from] === "(") from = matchClose(code, from) + 1;
+  return code.indexOf("{", from);
+}
+
 // Exported functions that call fetch in those files (triggerN8n, startQuoteWorkflow, ...): calling them = calling n8n.
 function exportedFunctionsCalling(file, pattern) {
   const names = [];
   const defs = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>/g;
   for (const m of file.code.matchAll(defs)) {
-    const brace = file.code.indexOf("{", m.index + m[0].length - 1);
+    const brace = bodyBrace(file.code, m.index + m[0].length - 1);
     const end = brace === -1 ? file.code.indexOf("\n", m.index) : matchClose(file.code, brace);
     if (pattern.test(file.code.slice(m.index, end))) names.push(m[1] ?? m[2]);
   }
@@ -273,7 +286,8 @@ const results = [];
 function check(id, title, run) {
   const violations = [];
   const notes = [];
-  run((file, line, message) => violations.push({ file, line, message }), (note) => notes.push(note));
+  // line is always >= 1; fileLevel marks findings about a file as a whole (reported at :1).
+  run((file, line, message, fileLevel = false) => violations.push({ file, line, message, fileLevel }), (note) => notes.push(note));
   results.push({ id, title, violations, notes });
 }
 
@@ -387,7 +401,7 @@ function helpersContaining(code, pattern) {
   const defs = /(?:function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>)/g;
   for (const m of code.matchAll(defs)) {
     const name = m[1] ?? m[2];
-    const brace = code.indexOf("{", m.index + m[0].length - 1);
+    const brace = bodyBrace(code, m.index + m[0].length - 1);
     const end = brace === -1 ? code.indexOf("\n", m.index) : matchClose(code, brace);
     if (pattern.test(code.slice(m.index, end))) names.push(name);
   }
@@ -417,7 +431,7 @@ check("C9", "колбек-роут читає req.text() до будь-яког�
     }
     const body = handlerBody(f.code);
     if (!body) {
-      fail(f.path, 1, "не знайдено export POST");
+      fail(f.path, 1, "не знайдено export POST", true);
       continue;
     }
     // Helpers are followed into the route's local imports (verifySignature() in lib/n8n/verify.ts…).
@@ -464,9 +478,12 @@ check("C10", "колбек-роут перевіряє HMAC x-n8n-signature че
 check("C11", "колбек-роут перевіряє x-n8n-timestamp і вікно 300 с", (fail, note) => {
   if (callbackRoutes.length === 0) return note("колбек-роуту немає — перевіряти нічого");
   for (const f of callbackRoutes) {
-    const unitCode = unitOf(f).map((m) => m.code).join("\n");
-    if (!/["'`]x-n8n-timestamp["'`]/i.test(unitCode)) fail(f.path, 1, "не читає x-n8n-timestamp — немає захисту від повторного відтворення");
-    else if (!/\b300\b|5\s*\*\s*60\b/.test(unitCode)) fail(f.path, 1, "немає вікна часу 300 с");
+    // The window must live where the header is read: that module compares it with the current time.
+    const reader = unitOf(f).find((m) => /["'`]x-n8n-timestamp["'`]/i.test(m.code));
+    if (!reader) fail(f.path, 1, "не читає x-n8n-timestamp — немає захисту від повторного відтворення", true);
+    else if (!/\b300\b|5\s*\*\s*60\b/.test(reader.code) || !/Date\.now\s*\(/.test(reader.code)) {
+      fail(reader.path, firstLineOf(reader, /x-n8n-timestamp/i), "x-n8n-timestamp не порівнюється з поточним часом у вікні 300 с");
+    }
   }
 });
 
@@ -474,8 +491,12 @@ check("C15", "колбек-роут відсікає повтори за idempot
   if (callbackRoutes.length === 0) return note("колбек-роуту немає — перевіряти нічого");
   for (const f of callbackRoutes) {
     const unitCode = unitOf(f).map((m) => m.code).join("\n");
-    if (!/["'`]idempotency-key["'`]/i.test(unitCode)) {
-      fail(f.path, 1, "не читає idempotency-key — повтори n8n (Retry On Fail) не відсікаються за ключем");
+    const readsKey = /["'`]idempotency-key["'`]/i.test(unitCode);
+    // …and records it: a claim/insert call, Set/Map .has/.add, or a unique constraint.
+    const claimsKey = /\b(?:claim|insert|reserve|record)\w*\s*\(|\.(?:has|add)\s*\(|onConflict|\bunique\b/i.test(unitCode);
+    if (!readsKey) fail(f.path, 1, "не читає idempotency-key — повтори n8n (Retry On Fail) не відсікаються за ключем", true);
+    else if (!claimsKey) {
+      fail(f.path, firstLineOf(f, /idempotency-key/i), "idempotency-key читається, але ніде не застовплюється (claim/insert/Set) — повтори не відсікаються");
     }
   }
 });
@@ -491,7 +512,7 @@ check("C12", 'немає export const runtime = "edge"', (fail) => {
 check("C13", ".env.example: N8N_* є, секрети change-me-…, адреси локальні", (fail, note) => {
   const usesN8n = n8nFetchFiles.length > 0 || clientFile !== null;
   if (!usesN8n && callbackRoutes.length === 0) return note("n8n у проєкті немає — перевіряти нічого");
-  if (envExample === null) return fail(".env.example", 0, "немає .env.example");
+  if (envExample === null) return fail(".env.example", 1, "немає .env.example", true);
   const vars = new Map();
   envExample.split("\n").forEach((l, i) => {
     const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
@@ -499,7 +520,7 @@ check("C13", ".env.example: N8N_* є, секрети change-me-…, адреси
   });
   const required = ["N8N_WEBHOOK_BASE_URL", "N8N_WEBHOOK_TOKEN"];
   if (callbackRoutes.length > 0 || files.some((f) => /callbackUrl/.test(f.code))) required.push("N8N_CALLBACK_SECRET", "APP_BASE_URL");
-  for (const name of required) if (!vars.has(name)) fail(".env.example", 0, `немає ${name}`);
+  for (const name of required) if (!vars.has(name)) fail(".env.example", 1, `немає ${name}`, true);
   for (const name of ["N8N_WEBHOOK_TOKEN", "N8N_CALLBACK_SECRET"]) {
     const v = vars.get(name);
     if (v && !v.value.startsWith("change-me")) fail(".env.example", v.line, `${name} — лише change-me-… (значення не друкуємо)`);
@@ -568,7 +589,7 @@ if (args.changedSince) {
     r.violations = r.violations.filter(
       (v) =>
         changed.newFiles.has(v.file) ||
-        (changed.lines.has(v.file) && (v.line === 0 || changed.lines.get(v.file).has(v.line))),
+        (changed.lines.has(v.file) && (v.fileLevel || changed.lines.get(v.file).has(v.line))),
     );
   }
 }
@@ -586,7 +607,7 @@ for (const r of results) {
   if (status === "FAIL") failed++;
   const note = !r.violations.length && r.notes.length ? ` (${r.notes.join("; ")})` : "";
   console.log(`${r.id.padEnd(4)} ${status}  ${r.title}${note}`);
-  for (const v of r.violations) console.log(`       ${v.file}${v.line ? `:${v.line}` : ""}  ${v.message}`);
+  for (const v of r.violations) console.log(`       ${v.file}:${v.line}  ${v.message}`);
 }
 console.log(`\n${failed} FAIL, ${results.length - failed} PASS → exit ${failed ? 1 : 0}`);
 process.exit(failed ? 1 : 0);

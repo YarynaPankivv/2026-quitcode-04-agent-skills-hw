@@ -1,8 +1,10 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import { headers } from "next/headers";
 import { after } from "next/server";
 import { db } from "@/lib/db";
+import { takeRateLimit } from "@/lib/rate-limit";
 import { n8nCallbackUrl, triggerN8n } from "@/lib/n8n/client";
 import { parseQuoteForm, type QuoteFormState } from "@/lib/quote-form";
 import type { Quote } from "@/lib/types";
@@ -16,6 +18,18 @@ export async function requestQuote(
   const parsed = parseQuoteForm(formData);
   if (!parsed.ok) {
     return { status: "invalid", errors: parsed.errors, values: parsed.values };
+  }
+
+  // Every request starts a 40–90 s PDF workflow in the client's n8n: at most 5 per 10 min per IP.
+  // x-forwarded-for is only trustworthy behind a proxy that overwrites it.
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
+  if (!takeRateLimit(`quote:${ip}`, 5, 10 * 60 * 1000)) {
+    const { company, email, description, budget } = parsed.data;
+    return {
+      status: "error",
+      message: "Забагато запитів поспіль. Спробуйте за кілька хвилин.",
+      values: { company, email, description, budget: budget === null ? "" : String(budget) },
+    };
   }
 
   // 3. Save before n8n hears about it: status "queued", keys stored with the quote

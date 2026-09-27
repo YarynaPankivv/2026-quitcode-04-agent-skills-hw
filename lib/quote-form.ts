@@ -24,7 +24,7 @@ export type QuoteFormState =
       errors: Partial<Record<QuoteField, string>>;
       values: Partial<Record<QuoteField, string>>;
     }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; values?: Partial<Record<QuoteField, string>> }
   | { status: "queued"; id: string };
 
 export type ParseQuoteResult =

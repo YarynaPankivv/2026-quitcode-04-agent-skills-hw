@@ -142,7 +142,7 @@ TTFB і розміри тут трохи відрізняються від ря�
 ## Task B — `building-client-form`
 
 Скіл: коміт `743ddf7` (`name: building-client-form` = тека; `description` 922 символи з 1024;
-192 рядки; лише `SKILL.md`). Самоперевірку робили скриптом, а не `claude plugin validate`.
+192 рядки на момент цього коміту, 201 — після `511ca08`; лише `SKILL.md`). Самоперевірку робили скриптом, а не `claude plugin validate`.
 
 - **Як перевіряли спрацювання (перша перевірка):** як і в Task A, команди `claude` у `PATH` не
   було, тому запустили агента з чистим контекстом (субагент Claude Code без історії розмови). У запиті — лише задача й обмеження
@@ -223,8 +223,8 @@ claude.exe -p --output-format stream-json --verbose --permission-mode default \
 Тут скіл лише пакують. Застосовує його агент у прогоні **B** (Task D) — доказ спрацювання, журнал
 мока й час відповіді форми — у `docs/ab-validation.md`.
 
-- **Що лишили в `SKILL.md`, а що винесли в `references/` (і чому).** У `SKILL.md` (148 рядків,
-  `description` 932 символи) лишилось те, що агент має зробити:
+- **Що лишили в `SKILL.md`, а що винесли в `references/` (і чому).** У `SKILL.md` (148 рядків у `d76f038`,
+  156 — зараз, після додавання скриптів у «Файли скіла»; `description` 932 символи) лишилось те, що агент має зробити:
   - контракт однією таблицею (змінні, модуль, URL, заголовки, конверт, таймаут/повтори, режим,
     колбек, журнали);
   - 7 кроків із прямими посиланнями на довідку;
@@ -407,11 +407,12 @@ C3 тут — PASS, і це правильно: `N8N_WEBHOOK_*` у погані�
   старими регресіями), `--changed-since HEAD` — лише 2: `lib/stub.ts:2` і `app/new-file.ts:1`;
 - неіснуючий ref → exit 2.
 
-**`check-contract.mjs` на фінальному коді** (після перенесення прогону B і доведення — коміти
-`25c47d4`, `57d25d3`, `090db99`; увесь код, без `--changed-since`):
+**`check-contract.mjs` на фінальному коді** — HEAD гілки після перенесення прогону B і всіх
+доведень (`25c47d4` … `c2db261`); увесь код, без `--changed-since`, з кореня репозиторію:
 
 ```
 $ node .claude/skills/integrating-n8n-webhooks/scripts/check-contract.mjs; echo "exit=$?"
+check-contract · root: E:HomeworkHomework46-quitcode-04-agent-skills-hw-v2 · 40 файлів коду · 15 перевірок
 C1   PASS  немає тестового URL вебхука (/webhook-test/)
 C2   PASS  немає NEXT_PUBLIC_N8N_* (секрети n8n не йдуть у браузер)
 C3   PASS  змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts

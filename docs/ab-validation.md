@@ -248,8 +248,13 @@ A — `local_1ffff69b…` (тека `leaddesk-ab-a`), B — `local_34481d99…` 
      поля форми без IP, user agent і `rawPayload`. Агент B свідомо цього не зробив (зміна даних може
      зламати воркфлоу клієнта) і створив картку задачі. Склад `data` записано в
      `docs/n8n-integrations.md` — його треба звірити з клієнтом.
-  2. `090db99` — з `.env.example` прибрано старий `N8N_WEBHOOK_URL=…/webhook-test/lead-created`.
-  3. Скіл, «перший бій» (окремі коміти скіла):
+  2. `090db99`, `8182298` — з `.env.example` прибрано старий `N8N_WEBHOOK_URL=…/webhook-test/lead-created`
+     і згадку тестового URL у коментарі.
+  3. Після рев'ю за рубрикою: `21f5db3` — ключ ідемпотентності й correlation id `lead-created`
+     зберігаються з лідом; `c6b04fa` — `fix(server-auth-actions)` для дій з лідом; `031d1ef` — підсумок
+     `role="alert"` для помилок валідації у формі кошторису (прогін B скіла форм не мав);
+     `c2db261` — ліміт 5 запитів за 10 хв на IP для `/quotes/new` (кожен запит запускає воркфлоу).
+  4. Скіл, «перший бій» (окремі коміти скіла):
      - `6feb2a9` — `check-contract.mjs` бачив лише «правильні» імена, тож на коді A C3–C11 проходили
        порожньо. Тепер він розпізнає змінні `N8N_*URL/TOKEN`, функції з `fetch`, колбек-роут будь-де
        разом з його локальними імпортами. C10 вимагає HMAC; додано C15.
@@ -266,7 +271,8 @@ A — `local_1ffff69b…` (тека `leaddesk-ab-a`), B — `local_34481d99…` 
 - **`npm run lint`, `npm run build` на гілці:** без помилок після кожного коміту.
 - **`check-contract.mjs` на фінальному коді** (увесь код, без прапорця):
   ```
-  check-contract · root: . (робоча гілка) · 15 перевірок
+  $ node .claude/skills/integrating-n8n-webhooks/scripts/check-contract.mjs   # з кореня репозиторію, HEAD
+  check-contract · root: E:HomeworkHomework46-quitcode-04-agent-skills-hw-v2 · 40 файлів коду · 15 перевірок
   C1   PASS  немає тестового URL вебхука (/webhook-test/)
   C2   PASS  немає NEXT_PUBLIC_N8N_* (секрети n8n не йдуть у браузер)
   C3   PASS  змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts

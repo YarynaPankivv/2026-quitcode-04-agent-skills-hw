@@ -101,10 +101,10 @@ A — `local_1ffff69b…` (тека `leaddesk-ab-a`), B — `local_34481d99…` 
          app/api/quotes/callback/route.ts:1  не читає x-n8n-timestamp — немає захисту від повторного відтворення
   C12  PASS  немає export const runtime = "edge"
   C13  FAIL  .env.example: N8N_* є, секрети change-me-…, адреси локальні
-         .env.example  немає N8N_WEBHOOK_BASE_URL
-         .env.example  немає N8N_WEBHOOK_TOKEN
-         .env.example  немає N8N_CALLBACK_SECRET
-         .env.example  немає APP_BASE_URL
+         .env.example:1  немає N8N_WEBHOOK_BASE_URL
+         .env.example:1  немає N8N_WEBHOOK_TOKEN
+         .env.example:1  немає N8N_CALLBACK_SECRET
+         .env.example:1  немає APP_BASE_URL
   C14  PASS  журнали коду n8n без тіл, заголовків, персональних даних, секретів
   C15  FAIL  колбек-роут відсікає повтори за idempotency-key
          app/api/quotes/callback/route.ts:1  не читає idempotency-key — повтори n8n (Retry On Fail) не відсікаються за ключем

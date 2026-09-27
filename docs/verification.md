@@ -275,6 +275,26 @@ claude.exe -p --output-format stream-json --verbose --permission-mode default \
     ті самі 8 FAIL; навмисно поганий код — 15 FAIL.
   - `bd1b1e3` — C8 хибно вважав оголошення `export async function submitLead(` викликом n8n поза
     `after()`. Знайдено, коли доводила перенесений код на гілці.
+  - За рев'ю CodeRabbit у PR:
+    - `ec6fd72` — `check-contract.mjs`:
+      - функцію з деструктуризованими параметрами (`triggerN8n(event, data, { … })`) не вважало
+        викликом n8n, тож `await triggerN8n(…)` поза `after()` проходив C8 (регресія з `6feb2a9`;
+        тепер FAIL);
+      - кожен FAIL друкується як `файл:рядок` (для файлу загалом — `:1`);
+      - C15 вимагає, щоб `idempotency-key` застовплювали, а не лише читали;
+      - C11 вимагає вікна 300 с поряд із `Date.now()` у модулі, що читає `x-n8n-timestamp`;
+      - порожнє значення `--root` / `--changed-since` дає exit 2.
+
+      Результати на всіх наборах не змінились: HEAD — 0 FAIL, `main` — 8 FAIL, прогін A — 9, прогін B
+      і шаблони — 0, поганий код — 15.
+    - `c9cbb7f` — `send-signed-callback.mjs --url` лише з `--correlation-id` вигадував
+      `requestIdempotencyKey`, і `valid` падав. Перевірено на гілці: 21/21.
+    - `2a964f5` — приклад `after()` у `building-client-form` ловить помилку аудиту; шаблон колбека
+      збігається з фінальним роутом (`correlationId`, `failureCode`, `documentUrl` лише http(s));
+      у `n8n-setup.md` для гілки помилки вказано `idempotency-key` з `.failed`.
+
+  Виводи `check-contract.mjs` у цьому документі й у `docs/ab-validation.md` звірено з поточною
+  версією скрипта: кожен рядок FAIL тепер має номер рядка.
 
   Отже, у скрипті тепер **15 перевірок `C1`–`C15`** (вище описано версію з BASE, 14 перевірок).
 
@@ -312,8 +332,8 @@ C10  PASS  колбек-роут перевіряє HMAC x-n8n-signature чер�
 C11  PASS  колбек-роут перевіряє x-n8n-timestamp і вікно 300 с (колбек-роуту немає — перевіряти нічого)
 C12  PASS  немає export const runtime = "edge"
 C13  FAIL  .env.example: N8N_* є, секрети change-me-…, адреси локальні
-       .env.example  немає N8N_WEBHOOK_BASE_URL
-       .env.example  немає N8N_WEBHOOK_TOKEN
+       .env.example:1  немає N8N_WEBHOOK_BASE_URL
+       .env.example:1  немає N8N_WEBHOOK_TOKEN
 C14  PASS  журнали коду n8n без тіл, заголовків, персональних даних, секретів
 C15  PASS  колбек-роут відсікає повтори за idempotency-key (колбек-роуту немає — перевіряти нічого)
 
@@ -370,8 +390,8 @@ C11  FAIL  колбек-роут перевіряє x-n8n-timestamp і вікн�
 C12  FAIL  немає export const runtime = "edge"
        app/api/n8n/[event]/route.ts:3  edge runtime — потрібен Node.js (node:crypto)
 C13  FAIL  .env.example: N8N_* є, секрети change-me-…, адреси локальні
-       .env.example  немає N8N_CALLBACK_SECRET
-       .env.example  немає APP_BASE_URL
+       .env.example:1  немає N8N_CALLBACK_SECRET
+       .env.example:1  немає APP_BASE_URL
        .env.example:2  N8N_WEBHOOK_TOKEN — лише change-me-… (значення не друкуємо)
        .env.example:1  N8N_WEBHOOK_BASE_URL — лише локальна адреса (127.0.0.1 / localhost)
        .env.example:1  N8N_WEBHOOK_BASE_URL має закінчуватися на /webhook

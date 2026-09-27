@@ -1,4 +1,4 @@
-# Перевірка (Task A–C, бонус E3)
+# Перевірка (Task A–C; бонус — E2, див. `docs/trigger-evals.md`)
 
 > Сюди — лише те, що справді сталося: цитати, числа, імена файлів, SHA комітів. Порядок дій — у
 > `docs/walkthrough.md`. Прогони A/B і фіча «запит на кошторис» — в окремому звіті
@@ -9,10 +9,15 @@
 
 ## Скіли видно у свіжій сесії
 
-- Як перевіряли: CLI `claude` у цій системі не встановлено (`which claude` → `command not found`),
-  тому `claude -p "/context"` запустити не вдалося. Натомість запустили агента з чистим контекстом
-  (субагент Claude Code без історії цієї розмови) з запитом «які skills тобі доступні? не
-  відкривай файлів» — перед будь-яким читанням файлів. Список скілів у головній сесії той самий.
+- Як перевіряли: під час Task A–C команди `claude` у `PATH` не було (`which claude` →
+  `command not found`), тому `claude -p "/context"` не запускався. Натомість запустили агента з
+  чистим контекстом (субагент Claude Code без історії цієї розмови) з запитом «які skills тобі
+  доступні? не відкривай файлів» — перед будь-яким читанням файлів.
+- Пізніше, у Task E2, знайшли CLI, який постачається разом із десктопним застосунком
+  (`claude.exe` 2.1.280 у теці пакета застосунку; після `/login` працює з Git Bash). Його подія
+  `system/init` у headless-сесії з кореня репозиторію перелічує всі три скіли проєкту:
+  `building-client-form`, `integrating-n8n-webhooks`, `vercel-react-best-practices`, а також
+  особистий `find-skills`. Спрацювання Task B повторно перевірено саме так (див. Task B).
 
 | Skill | Звідки (Project / Personal / вбудований) | Примітка |
 |---|---|---|
@@ -41,7 +46,7 @@
 
 | файл:рядок (на `main`) | id правила | що не так | Що зробили |
 |---|---|---|---|
-| `app/actions.ts:68`, `:74` | `server-auth-actions` | `updateLeadStatus`/`deleteLead` не перевіряють сесію й належність ліда до workspace | Не продуктивність, а безпека; відкладено до Task B (патерн форми: перевірка сесії в Server Action) |
+| `app/actions.ts:68`, `:74` | `server-auth-actions` | `updateLeadStatus`/`deleteLead` не перевіряють сесію й належність ліда до workspace | Не продуктивність, а безпека. Відкладено з Task A й виправлено окремим комітом `c6b04fa` `fix(server-auth-actions)`: сесія, належність ліда до workspace, перевірка статусу |
 | `app/dashboard/page.tsx:16-18` | `async-parallel` | три незалежні запити (400 + 1200 + 400 мс) по черзі | **Виправлено**, коміт `8416969`, з числами |
 | `components/leads-toolbar.tsx:4` | `bundle-conditional` | `exceljs` статично в бандлі дашборда, хоча потрібен лише для експорту | **Виправлено**, коміт `0aa95a2` |
 | `components/leads-toolbar.tsx:6` | `bundle-dynamic-imports` | `SourcesChart` з `recharts` у початковому бандлі, хоча графік прихований | **Виправлено**, коміт `9b42c29` |
@@ -83,8 +88,16 @@ TTFB — 5 прогонів після прогріву, у таблиці ме�
 | `bundle-dynamic-imports` | `9b42c29` | `components/leads-toolbar.tsx` | `SourcesChart` (recharts) — через `next/dynamic` з `ssr: false` у Client Component | JS при відкритті `/dashboard`: **1 871 692 Б** (gzip 538 404), 10 файлів | **1 518 011 Б** (gzip 437 560) | сума `/_next/static/*.js` з HTML сторінки |
 | `bundle-conditional` | `0aa95a2` | `components/leads-toolbar.tsx` | `exceljs` — `import()` у `handleExport`, паралельно з `fetch("/api/leads")` | **1 518 011 Б** (gzip 437 560), 10 файлів | **587 222 Б** (gzip 181 747), 9 файлів | те саме |
 
-Разом по дашборду: TTFB 2,256 → 1,438 с (−36 %), HTML 424 592 → 111 057 Б, RSC 315 197 → 31 029 Б,
-клієнтський JS при відкритті 1 871 692 → 587 222 Б (−69 %; gzip 538 404 → 181 747 Б).
+Разом по дашборду — **окремий фінальний замір після всіх п'яти комітів** (та сама методика, нова
+збірка й новий запуск сервера): TTFB 2,256 → 1,438 с (−36 %), HTML 424 592 → 111 057 Б, RSC 315 197 →
+31 029 Б, клієнтський JS при відкритті 1 871 692 → 587 222 Б (−69 %; gzip 538 404 → 181 747 Б). Тому
+TTFB і розміри тут трохи відрізняються від рядків таблиці вище: кожен рядок — замір одразу після
+свого коміту.
+
+Інші коміти з префіксом `fix(…)` у гілці — не виправлення за правилами Vercel. `fix(n8n)`,
+`fix(env)` — доведення перенесеного коду прогону B до контракту (Task D, `docs/ab-validation.md`).
+Виправлення за скілом Vercel — лише п'ять комітів `fix(<rule-id>)` із таблиці та `c6b04fa`
+`fix(server-auth-actions)`.
 
 - **Чому для головного заміру обрали `async-parallel`:** це саме та скарга клієнта («дашборд
   відкривається понад 2 секунди»), і ефект видно одним `curl` без DevTools. Базова лінія 2,256 с
@@ -131,8 +144,8 @@ TTFB — 5 прогонів після прогріву, у таблиці ме�
 Скіл: коміт `743ddf7` (`name: building-client-form` = тека; `description` 922 символи з 1024;
 192 рядки; лише `SKILL.md`). Самоперевірку робили скриптом, а не `claude plugin validate`.
 
-- **Як перевіряли спрацювання:** як і в Task A, CLI `claude` недоступний, тому запустили агента з
-  чистим контекстом (субагент Claude Code без історії розмови). У запиті — лише задача й обмеження
+- **Як перевіряли спрацювання (перша перевірка):** як і в Task A, команди `claude` у `PATH` не
+  було, тому запустили агента з чистим контекстом (субагент Claude Code без історії розмови). У запиті — лише задача й обмеження
   («не запускай сервер, не комітить, не став пакети, не чіпай tools/ materials/ docs/ .claude/»),
   а в кінці — прохання перелічити виклики інструментів по порядку. Скіл не названо.
 - Запит у свіжій сесії (скіл не названо):
@@ -188,6 +201,22 @@ TTFB — 5 прогонів після прогріву, у таблиці ме�
 | Швидкість / `after()` | POST з JS — 531 мс. Послідовні запити в дії: сесія 100 + (workspace ‖ лід) 100 + запис 80 мс, далі перерендер сторінки. `db:insertAuditEntry` (250 мс) у журналі є, але в час відповіді не входить: інакше було б ≥ 780 мс |
 
 Код прогону лишили в гілці: він проходить усі пункти Verify.
+
+**Повторна перевірка в нових headless-сесіях** (27.09.2026, після того як знайшли `claude.exe`; див.
+«Скіли видно»). Кожен запит — окрема нова сесія з кореня репозиторію, скіл не названо:
+
+```bash
+claude.exe -p --output-format stream-json --verbose --permission-mode default \
+  --allowedTools "Skill,Read,Grep,Glob" \
+  --disallowedTools "Edit,Write,NotebookEdit,Bash,PowerShell,WebFetch,WebSearch" < prompt.txt > run.jsonl
+```
+
+| Запит | Сесія | Перші виклики інструментів | Результат |
+|---|---|---|---|
+| Той самий, що вище («Додати нотатку»), дослівно | `d6e22c41…` | `Skill(building-client-form)`, `Glob`, `Read`… | Скіл викликано першою дією. Агент побачив, що форма вже є, і звірив її з чеклістом скіла |
+| Новий: «На сторінці ліда в дашборді додай форму «Запланувати дзвінок»: дата, час і коментар до 200 символів; запланований дзвінок зберігається в ліді й показується на сторінці» | `9d245e83…` | `Skill(building-client-form)`, `Glob`, `Read`… | Скіл викликано першою дією. Файлів агент не змінив (Edit/Write заборонені) — видав реалізацію текстом |
+
+Модель — `claude-opus-5-5`. Після обох сесій `git status` чистий, файли `run.jsonl` у git немає.
 
 ## Task C — `integrating-n8n-webhooks`
 
@@ -249,21 +278,24 @@ TTFB — 5 прогонів після прогріву, у таблиці ме�
 
   Отже, у скрипті тепер **15 перевірок `C1`–`C15`** (вище описано версію з BASE, 14 перевірок).
 
-**`check-contract.mjs`: 14 перевірок `C1`–`C14`**, Node без залежностей (`node:fs`, `node:path`,
+**`check-contract.mjs`: 15 перевірок `C1`–`C15`** (у BASE `828045c` було 14; C15 і ширше розпізнавання
+додано після прогону A — коміти `6feb2a9`, `bd1b1e3`, див. «Що скіл змінив у собі»). Node без залежностей (`node:fs`, `node:path`,
 `node:child_process` лише для `--changed-since`). Для кожної — PASS/FAIL, для FAIL — `файл:рядок`
 і причина. Exit 1 при FAIL, 2 — помилка запуску (невідомий аргумент, не тека, поганий git-ref).
 Є `--root <тека>`, `--changed-since <ref>` і `--help`. Читає код і лише `.env.example`, інших `.env*`
 не відкриває; значень змінних не друкує.
 
-**`check-contract.mjs` на коді `main`** (`git archive main | tar -x -C ../leaddesk-main`):
+**`check-contract.mjs` на коді `main`** (`git archive main | tar -x -C ../leaddesk-main`), поточна
+версія скрипта. Версія з BASE дала на тому самому коді ті самі 8 FAIL (`8 FAIL, 6 PASS`): C15 на
+`main` не має що перевіряти.
 
 ```
 $ node .claude/skills/integrating-n8n-webhooks/scripts/check-contract.mjs --root ../leaddesk-main; echo "exit=$?"
-check-contract · root: ../leaddesk-main · 28 файлів коду · 14 перевірок
+check-contract · root: ../leaddesk-main · 28 файлів коду · 15 перевірок
 C1   FAIL  немає тестового URL вебхука (/webhook-test/)
        .env.example:6  тестовий URL у .env.example — лише /webhook
 C2   PASS  немає NEXT_PUBLIC_N8N_* (секрети n8n не йдуть у браузер)
-C3   FAIL  N8N_WEBHOOK_* читає лише lib/n8n/client.ts
+C3   FAIL  змінні виклику n8n (N8N_*URL / *WEBHOOK* / *TOKEN) читає лише lib/n8n/client.ts
        app/actions.ts:54  N8N_WEBHOOK_URL поза lib/n8n/client.ts — виклик n8n має бути лише там
 C4   FAIL  модуль lib/n8n/client.ts починається з import "server-only"
        app/actions.ts:54  n8n викликається, а lib/n8n/client.ts немає
@@ -276,15 +308,16 @@ C7   FAIL  тіло до n8n — конверт { version: 1, event, data }
 C8   FAIL  Server Action не чекає n8n: виклик лише в after(...)
        app/actions.ts:54  fetch до n8n у Server Action поза after() — користувач чекає n8n
 C9   PASS  колбек-роут читає req.text() до будь-якого JSON.parse (колбек-роуту немає — перевіряти нічого)
-C10  PASS  колбек-роут порівнює підпис через timingSafeEqual, не === (колбек-роуту немає — перевіряти нічого)
+C10  PASS  колбек-роут перевіряє HMAC x-n8n-signature через timingSafeEqual, не === (колбек-роуту немає — перевіряти нічого)
 C11  PASS  колбек-роут перевіряє x-n8n-timestamp і вікно 300 с (колбек-роуту немає — перевіряти нічого)
 C12  PASS  немає export const runtime = "edge"
 C13  FAIL  .env.example: N8N_* є, секрети change-me-…, адреси локальні
        .env.example  немає N8N_WEBHOOK_BASE_URL
        .env.example  немає N8N_WEBHOOK_TOKEN
 C14  PASS  журнали коду n8n без тіл, заголовків, персональних даних, секретів
+C15  PASS  колбек-роут відсікає повтори за idempotency-key (колбек-роуту немає — перевіряти нічого)
 
-8 FAIL, 6 PASS → exit 1
+8 FAIL, 7 PASS → exit 1
 exit=1
 ```
 
@@ -460,10 +493,3 @@ Exit 0 / 1 (розбіжність) / 2 (помилка запуску, недо
 Ще одна вада знайшлася на першому ж прогоні. На Windows `process.exit()` після `fetch` падав на
 внутрішній перевірці libuv (`Assertion failed … async.c`), і код виходу ставав 127 замість 0.
 Запити переведено на `node:http` без keep-alive.
-
-## Task E3 (бонус) — ті самі скіли в Cursor
-
-- Версія Cursor, модель: <…>
-- Які скіли Cursor побачив: <…>
-- Ті самі запити, що в Task B, і запит із `materials/ab-task.md`: спрацювали скіли чи ні: <…>
-- Чим поведінка відрізнялась від Claude Code: <…>

@@ -68,7 +68,7 @@ A — `local_1ffff69b…` (тека `leaddesk-ab-a`), B — `local_34481d99…` 
   `/quotes/[id]`, Server Action і ендпоінт для n8n працюють… Я не знаю, які поля очікує вже
   опублікований воркфлоу `quote-request`, тому описав свій формат. Його треба узгодити з
   налаштуваннями у клієнта». Окремо агент позначив: `updateLeadStatus` і `deleteLead` не перевіряють
-  сесію (створив картку задачі).
+  сесію (створив картку задачі). Це закрито на гілці окремим комітом `c6b04fa` `fix(server-auth-actions)`.
 - **Змінені файли** (`git diff --cached --stat base`): 13 файлів, +766 / −1 — `.env.example`,
   `app/api/quotes/callback/route.ts`, `app/quotes/[id]/page.tsx`, `app/quotes/new/actions.ts`,
   `app/quotes/new/page.tsx`, `components/quote-auto-refresh.tsx`, `components/quote-form.tsx`,

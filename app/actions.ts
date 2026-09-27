@@ -52,12 +52,15 @@ export async function submitLead(
         receivedAt: new Date().toISOString(),
       },
     },
+    // One key per lead, stored with it: the client's retries and any re-send reuse it.
+    n8nIdempotencyKey: randomUUID(),
+    n8nCorrelationId: randomUUID(),
   });
 
   // n8n ("Immediately", no callback) and the audit entry run after the response: the visitor
-  // does not wait for them. One idempotency key per lead, reused by the client's retries.
-  const idempotencyKey = randomUUID();
-  const correlationId = randomUUID();
+  // does not wait for them.
+  const idempotencyKey = lead.n8nIdempotencyKey!;
+  const correlationId = lead.n8nCorrelationId!;
   after(async () => {
     try {
       // What the lead workflow needs from the form — not the IP, user agent or raw payload.

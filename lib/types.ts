@@ -46,6 +46,9 @@ export type Lead = {
   ipAddress: string;
   userAgent: string;
   rawPayload: Record<string, unknown>;
+  // n8n lead-created: one key per lead, stored with it so a re-send reuses the same key.
+  n8nIdempotencyKey?: string;
+  n8nCorrelationId?: string;
   internalNotes: string;
   createdAt: string;
   updatedAt: string;

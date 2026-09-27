@@ -439,7 +439,9 @@ function contextFor({ url, webhookEvent, requestKey, jobId, correlationId, hasRe
   return {
     url,
     bodyEvent: `${pathEvent}.completed`,
-    requestKey: requestKey ?? fresh(),
+    // A real record given only by --correlation-id: send no requestIdempotencyKey, so the route can
+    // fall back to correlationId instead of missing on an invented key (JSON.stringify drops undefined).
+    requestKey: requestKey ?? (hasRecord && correlationId ? undefined : fresh()),
     jobId: jobId ?? fresh(),
     correlationId: correlationId ?? fresh(),
     hasRecord,

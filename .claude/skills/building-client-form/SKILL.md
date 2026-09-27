@@ -78,7 +78,13 @@ export async function addNote(_prev: NoteFormState, formData: FormData): Promise
   if (!lead || !canEditLead(user, lead)) return { status: "error", message: "Лід не знайдено" };
 
   await db.appendLeadNote(lead.id, parsed.data.note);  // 4. запис
-  after(() => logAudit("lead.note_added", lead.id));   // 5. повільне — після відповіді
+  after(async () => {                                  // 5. повільне — після відповіді
+    try {
+      await logAudit("lead.note_added", lead.id);
+    } catch (error) {                                  //    помилку ловимо й пишемо лише код
+      console.error("lead.note_audit_failed", { leadId: lead.id, code: error instanceof Error ? error.name : "unknown" });
+    }
+  });
   revalidatePath(`/dashboard/leads/${lead.id}`);
   return { status: "ok" };                             // 6. лише статус
 }

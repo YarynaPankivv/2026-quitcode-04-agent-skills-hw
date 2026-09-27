@@ -24,7 +24,10 @@
 - n8n у Docker, застосунок на хості — `callbackUrl` через `host.docker.internal`, не `localhost`
   (тоді й `APP_BASE_URL` відповідний);
 - гілка помилки воркфлоу надсилає той самий колбек з `event: '<event>.failed'`,
-  `data.status: 'failed'`, `data.error: { code }`.
+  `data.status: 'failed'`, `data.error: { code }` **і заголовком
+  `idempotency-key` = `{{ $execution.id }}:<event>.failed`**. Ключ має збігатися з подією в
+  підписаному тілі: скопійований без змін вузол із `…:<event>.completed` отримає 400, і
+  статус `failed` не запишеться.
 
 ## Подія «до відома»: `<event>` → 200
 

@@ -191,6 +191,18 @@ function parseCallback(raw: string): CallbackBody | null {
   }
 }
 
+// The link ends up in <a href> on the status page: only http(s), never javascript: or data:.
+function documentUrlFrom(body: CallbackBody): string | null {
+  const value = body.data.result?.documentUrl;
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request, ctx: RouteContext<"/api/n8n/[event]">) {
   const started = Date.now();
   const { event } = await ctx.params;
@@ -242,10 +254,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/n8n/[event]
     }
 
     // 8. Мінімальний стан — ДО відповіді.
+    const failed = body.data.status === "failed";
     const saved = await db.applyQuoteResult({
-      requestIdempotencyKey: body.data.requestIdempotencyKey,
-      status: body.data.status === "completed" ? "ready" : "failed",
-      documentUrl: body.data.result?.documentUrl ?? null,
+      requestIdempotencyKey: body.data.requestIdempotencyKey, // запис шукаємо за ключем запиту…
+      correlationId: body.data.correlationId, //                …або за correlation id
+      status: failed ? "failed" : "ready",
+      documentUrl: failed ? null : documentUrlFrom(body), // лише http(s): піде в <a href>
+      failureCode: failed ? `workflow_${String(body.data.error?.code ?? "failed").slice(0, 64)}` : null,
     });
     if (!saved) {
       await db.releaseCallbackKey(key);

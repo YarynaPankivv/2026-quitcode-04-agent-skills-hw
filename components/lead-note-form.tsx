@@ -9,7 +9,7 @@ const initialState: NoteFormState = { status: "idle" };
 export function LeadNoteForm({ leadId }: { leadId: string }) {
   const [state, formAction, pending] = useActionState(addLeadNote, initialState);
   const errors = state.status === "invalid" ? state.errors : {};
-  const values = state.status === "invalid" ? state.values : {};
+  const values = state.status === "invalid" || state.status === "error" ? (state.values ?? {}) : {};
 
   return (
     <form

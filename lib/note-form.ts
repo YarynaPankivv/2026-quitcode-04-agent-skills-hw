@@ -13,7 +13,7 @@ export type NoteFormState =
       errors: Partial<Record<NoteField, string>>;
       values: Partial<Record<NoteField, string>>;
     }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; values?: Partial<Record<NoteField, string>> }
   | { status: "ok" };
 
 export type ParseNoteResult =

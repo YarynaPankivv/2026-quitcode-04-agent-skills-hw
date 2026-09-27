@@ -30,18 +30,19 @@ export async function addLeadNote(
       db.getLead(leadId),
     ]);
     if (!lead || lead.workspaceId !== workspace.id) {
-      return { status: "error", message: "Лід не знайдено." };
+      return { status: "error", message: "Лід не знайдено.", values: { note: parsed.data.note } };
     }
 
     // 4. Write.
     const saved = await db.appendLeadNote(lead.id, parsed.data.note);
     if (!saved) {
-      return { status: "error", message: "Лід не знайдено." };
+      return { status: "error", message: "Лід не знайдено.", values: { note: parsed.data.note } };
     }
   } catch (error) {
     const code = error instanceof Error ? error.name : "unknown";
     console.error("lead.note_save_failed", { leadId, code });
-    return { status: "error", message: "Не вдалося зберегти нотатку. Спробуйте ще раз." };
+    // Keep what the person typed: React resets the uncontrolled field after the action.
+    return { status: "error", message: "Не вдалося зберегти нотатку. Спробуйте ще раз.", values: { note: parsed.data.note } };
   }
 
   // 5. Slow side effects after the response.

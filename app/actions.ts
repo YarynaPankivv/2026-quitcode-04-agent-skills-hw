@@ -22,6 +22,8 @@ export async function submitLead(
   _prevState: SubmitLeadState,
   formData: FormData,
 ): Promise<SubmitLeadState> {
+  // Public form on "/": deliberately no session — anyone may leave a request; the workspace is
+  // fixed on the server (PUBLIC_FORM_WORKSPACE_ID), never taken from formData.
   const parsed = parseLeadForm(formData);
   if (!parsed.ok) {
     return { status: "invalid", errors: parsed.errors };

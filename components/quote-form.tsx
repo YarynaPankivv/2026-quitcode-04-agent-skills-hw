@@ -20,7 +20,7 @@ export function QuoteForm() {
   const [state, formAction, pending] = useActionState(requestQuote, initialState);
   const router = useRouter();
   const errors = state.status === "invalid" ? state.errors : {};
-  const values = state.status === "invalid" ? state.values : {};
+  const values = state.status === "invalid" || state.status === "error" ? (state.values ?? {}) : {};
 
   useEffect(() => {
     if (state.status === "queued") router.push(`/quotes/${state.id}`);
@@ -98,6 +98,11 @@ export function QuoteForm() {
         {fieldError("budget")}
       </div>
 
+      {state.status === "invalid" && (
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Перевірте поля: {Object.values(errors).join(" ")}
+        </div>
+      )}
       {state.status === "error" && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.message}
